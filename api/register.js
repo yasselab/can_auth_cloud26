@@ -1,18 +1,15 @@
+export const config = {
+  runtime: "nodejs"
+};
+
 import bcrypt from "bcryptjs";
 import pkg from "pg";
 
 const { Pool } = pkg;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not defined");
-}
-
-// Pool global (important pour serverless)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
-  }
+  ssl: { rejectUnauthorized: false }
 });
 
 export default async function handler(req, res) {
@@ -26,49 +23,29 @@ export default async function handler(req, res) {
     const { name, email, password, role } = req.body || {};
 
     if (!name || !email || !password) {
-      return res.status(400).json({
-        error: "name, email and password are required"
-      });
+      return res.status(400).json({ error: "Missing fields" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const hashed = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      `
-      INSERT INTO "Users" (name, email, password, role)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, name, email, role
-      `,
-      [name, email, hashedPassword, role || "VOLUNTEER"]
+      `INSERT INTO "Users"(name,email,password,role)
+       VALUES ($1,$2,$3,$4)
+       RETURNING id,name,email,role`,
+      [name, email, hashed, role || "VOLUNTEER"]
     );
-
-    // Email (non bloquant)
-    try {
-      await fetch("https://can-notify-welcome-39985935336.europe-west1.run.app", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email })
-      });
-    } catch (e) {
-      console.warn("Email service failed:", e.message);
-    }
 
     return res.status(201).json({
       ok: true,
-      message: "User created successfully",
       user: result.rows[0]
     });
 
   } catch (err) {
     console.error("REGISTER ERROR:", err);
-
-    if (err.code === "23505") {
-      return res.status(409).json({ error: "Email already exists" });
-    }
-
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }
+
 
 
 
