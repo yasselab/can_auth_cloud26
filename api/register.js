@@ -1,34 +1,77 @@
 import bcrypt from "bcryptjs";
 import { Sequelize, DataTypes } from "sequelize";
 
-// Connexion DB (Postgres / Neon / Supabase / RDS)
+// ⚠️ pool n'est PAS utilisé ici, mais on le garde si tu veux l'utiliser ailleurs
+import pool from "../lib/db.js";
+
+/**
+ * =========================
+ * DB CONNECTION (Postgres)
+ * =========================
+ */
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is not defined");
+}
+
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
   dialect: "postgres",
-  logging: false
-});
-
-// Modèle User (simple)
-const User = sequelize.define("User", {
-  name: DataTypes.STRING,
-  email: {
-    type: DataTypes.STRING,
-    unique: true,
-    allowNull: false
-  },
-  password: DataTypes.STRING,
-  role: {
-    type: DataTypes.ENUM("ADMIN", "VOLUNTEER"),
-    defaultValue: "VOLUNTEER"
+  logging: false,
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false
+    }
   }
 });
 
+/**
+ * =========================
+ * USER MODEL
+ * =========================
+ */
+const User = sequelize.define(
+  "User",
+  {
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    email: {
+      type: DataTypes.STRING,
+      unique: true,
+      allowNull: false
+    },
+    password: {
+      type: DataTypes.STRING,
+      allowNull: false
+    },
+    role: {
+      type: DataTypes.ENUM("ADMIN", "VOLUNTEER"),
+      defaultValue: "VOLUNTEER"
+    }
+  },
+  {
+    tableName: "users",
+    timestamps: true
+  }
+);
+
+/**
+ * =========================
+ * API HANDLER
+ * =========================
+ */
 export default async function handler(req, res) {
+  // 🔎 DEBUG LOGS (CRITIQUE POUR VERCEL)
+  console.log("REGISTER called");
+  console.log("DATABASE_URL exists:", !!process.env.DATABASE_URL);
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST" });
   }
 
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role } = req.body || {};
 
     // 🔒 Validation
     if (!name || !email || !password) {
@@ -77,12 +120,13 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error(err);
+    // ❌ DEBUG LOG COMPLET
+    console.error("REGISTER ERROR:", err);
 
     if (err.name === "SequelizeUniqueConstraintError") {
       return res.status(409).json({ error: "Email already exists" });
     }
 
-    return res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
