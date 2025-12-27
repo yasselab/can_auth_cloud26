@@ -3,8 +3,7 @@ import { Sequelize, DataTypes } from "sequelize";
 // import fetch from "node-fetch";
 
 
-// ⚠️ pool n'est PAS utilisé ici, mais on le garde si tu veux l'utiliser ailleurs
-import pool from "../lib/db.js";
+
 
 /**
  * =========================
