@@ -94,6 +94,8 @@ export default async function handler(req, res) {
     });
 
     // 📧 CALL GCP FaaS (PUBLIC – sans clé)
+    console.log("About to call welcome email FaaS");
+
     try {
       await fetch(
         "https://can-notify-welcome-39985935336.europe-west1.run.app",
