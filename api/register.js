@@ -1,71 +1,22 @@
 import bcrypt from "bcryptjs";
-import { Sequelize, DataTypes } from "sequelize";
-// import fetch from "node-fetch";
+import pkg from "pg";
 
+const { Pool } = pkg;
 
-
-
-/**
- * =========================
- * DB CONNECTION (Postgres)
- * =========================
- */
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is not defined");
 }
 
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: "postgres",
-  logging: false,
-  dialectOptions: {
-    ssl: {
-      require: true,
-      rejectUnauthorized: false
-    }
+// Pool global (important pour serverless)
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
   }
 });
 
-/**
- * =========================
- * USER MODEL
- * =========================
- */
-const User = sequelize.define(
-  "User",
-  {
-    name: {
-      type: DataTypes.STRING,
-      allowNull: false
-    },
-    email: {
-      type: DataTypes.STRING,
-      unique: true,
-      allowNull: false
-    },
-    password: {
-      type: DataTypes.STRING,
-      allowNull: false
-    },
-    role: {
-      type: DataTypes.ENUM("ADMIN", "VOLUNTEER"),
-      defaultValue: "VOLUNTEER"
-    }
-  },
-  {
-    tableName: "Users",
-    timestamps: true
-  }
-);
-
-/**
- * =========================
- * API HANDLER
- * =========================
- */
 export default async function handler(req, res) {
-  // 🔎 DEBUG LOGS (CRITIQUE POUR VERCEL)
   console.log("REGISTER called");
-  console.log("DATABASE_URL exists:", !!process.env.DATABASE_URL);
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST" });
@@ -74,62 +25,192 @@ export default async function handler(req, res) {
   try {
     const { name, email, password, role } = req.body || {};
 
-    // 🔒 Validation
     if (!name || !email || !password) {
       return res.status(400).json({
         error: "name, email and password are required"
       });
     }
 
-    // 🔐 Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 💾 Create user
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role: role || "VOLUNTEER"
-    });
+    const result = await pool.query(
+      `
+      INSERT INTO "Users" (name, email, password, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, name, email, role
+      `,
+      [name, email, hashedPassword, role || "VOLUNTEER"]
+    );
 
-    // 📧 CALL GCP FaaS (PUBLIC – sans clé)
-    console.log("About to call welcome email FaaS");
-
+    // Email (non bloquant)
     try {
-      await fetch(
-        "https://can-notify-welcome-39985935336.europe-west1.run.app",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ email })
-        }
-      );
-    } catch (mailError) {
-      console.error("⚠️ Email service error:", mailError.message);
-      // on ne bloque PAS l'inscription si l'email échoue
+      await fetch("https://can-notify-welcome-39985935336.europe-west1.run.app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email })
+      });
+    } catch (e) {
+      console.warn("Email service failed:", e.message);
     }
 
     return res.status(201).json({
       ok: true,
       message: "User created successfully",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role
-      }
+      user: result.rows[0]
     });
 
   } catch (err) {
-    // ❌ DEBUG LOG COMPLET
     console.error("REGISTER ERROR:", err);
 
-    if (err.name === "SequelizeUniqueConstraintError") {
+    if (err.code === "23505") {
       return res.status(409).json({ error: "Email already exists" });
     }
 
     return res.status(500).json({ error: "Internal server error" });
   }
 }
+
+
+
+
+
+
+
+
+
+
+// import bcrypt from "bcryptjs";
+// import { Sequelize, DataTypes } from "sequelize";
+// // import fetch from "node-fetch";
+
+
+
+
+// /**
+//  * =========================
+//  * DB CONNECTION (Postgres)
+//  * =========================
+//  */
+// if (!process.env.DATABASE_URL) {
+//   throw new Error("DATABASE_URL is not defined");
+// }
+
+// const sequelize = new Sequelize(process.env.DATABASE_URL, {
+//   dialect: "postgres",
+//   logging: false,
+//   dialectOptions: {
+//     ssl: {
+//       require: true,
+//       rejectUnauthorized: false
+//     }
+//   }
+// });
+
+// /**
+//  * =========================
+//  * USER MODEL
+//  * =========================
+//  */
+// const User = sequelize.define(
+//   "User",
+//   {
+//     name: {
+//       type: DataTypes.STRING,
+//       allowNull: false
+//     },
+//     email: {
+//       type: DataTypes.STRING,
+//       unique: true,
+//       allowNull: false
+//     },
+//     password: {
+//       type: DataTypes.STRING,
+//       allowNull: false
+//     },
+//     role: {
+//       type: DataTypes.ENUM("ADMIN", "VOLUNTEER"),
+//       defaultValue: "VOLUNTEER"
+//     }
+//   },
+//   {
+//     tableName: "Users",
+//     timestamps: true
+//   }
+// );
+
+// /**
+//  * =========================
+//  * API HANDLER
+//  * =========================
+//  */
+// export default async function handler(req, res) {
+//   // 🔎 DEBUG LOGS (CRITIQUE POUR VERCEL)
+//   console.log("REGISTER called");
+//   console.log("DATABASE_URL exists:", !!process.env.DATABASE_URL);
+
+//   if (req.method !== "POST") {
+//     return res.status(405).json({ error: "Use POST" });
+//   }
+
+//   try {
+//     const { name, email, password, role } = req.body || {};
+
+//     // 🔒 Validation
+//     if (!name || !email || !password) {
+//       return res.status(400).json({
+//         error: "name, email and password are required"
+//       });
+//     }
+
+//     // 🔐 Hash password
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     // 💾 Create user
+//     const user = await User.create({
+//       name,
+//       email,
+//       password: hashedPassword,
+//       role: role || "VOLUNTEER"
+//     });
+
+//     // 📧 CALL GCP FaaS (PUBLIC – sans clé)
+//     console.log("About to call welcome email FaaS");
+
+//     try {
+//       await fetch(
+//         "https://can-notify-welcome-39985935336.europe-west1.run.app",
+//         {
+//           method: "POST",
+//           headers: {
+//             "Content-Type": "application/json"
+//           },
+//           body: JSON.stringify({ email })
+//         }
+//       );
+//     } catch (mailError) {
+//       console.error("⚠️ Email service error:", mailError.message);
+//       // on ne bloque PAS l'inscription si l'email échoue
+//     }
+
+//     return res.status(201).json({
+//       ok: true,
+//       message: "User created successfully",
+//       user: {
+//         id: user.id,
+//         name: user.name,
+//         email: user.email,
+//         role: user.role
+//       }
+//     });
+
+//   } catch (err) {
+//     // ❌ DEBUG LOG COMPLET
+//     console.error("REGISTER ERROR:", err);
+
+//     if (err.name === "SequelizeUniqueConstraintError") {
+//       return res.status(409).json({ error: "Email already exists" });
+//     }
+
+//     return res.status(500).json({ error: "Internal server error" });
+//   }
+// }
