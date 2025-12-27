@@ -1,16 +1,5 @@
-export const config = {
-  runtime: "nodejs"
-};
-
 import bcrypt from "bcryptjs";
-import pkg from "pg";
-
-const { Pool } = pkg;
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
+import pool from "../lib/db.js";
 
 export default async function handler(req, res) {
   console.log("REGISTER called");
@@ -23,16 +12,20 @@ export default async function handler(req, res) {
     const { name, email, password, role } = req.body || {};
 
     if (!name || !email || !password) {
-      return res.status(400).json({ error: "Missing fields" });
+      return res.status(400).json({
+        error: "name, email and password are required"
+      });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      `INSERT INTO "Users"(name,email,password,role)
-       VALUES ($1,$2,$3,$4)
-       RETURNING id,name,email,role`,
-      [name, email, hashed, role || "VOLUNTEER"]
+      `
+      INSERT INTO "Users" (name, email, password, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, name, email, role
+      `,
+      [name, email, hashedPassword, role || "VOLUNTEER"]
     );
 
     return res.status(201).json({
@@ -42,6 +35,11 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error("REGISTER ERROR:", err);
+
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "Email already exists" });
+    }
+
     return res.status(500).json({ error: "Server error" });
   }
 }
